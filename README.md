@@ -59,3 +59,7 @@ print("\nData download complete!")
 ```
 
 **Pro-Tip:** Save the code above as a file named `download_data.py` in your project's root directory. This way, new users can simply run `python download_data.py` to get everything they need.
+
+## Project Workflow Diagram
+
+![workflow diagram](workflow_diagram.png)
