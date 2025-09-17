@@ -24,6 +24,6 @@ dot.edges([("1", "2"), ("2", "3"), ("3", "4"), ("4", "5")])
 
 # Save and render
 dot.graph_attr.update(dpi="300")  # 300 DPI = print quality
-output_path = "C:/Users/DELL/Projects/movie_recommendation/workflow_diagram"
+output_path = "workflow_diagram"
 
 dot.render(output_path, format="png", cleanup=True)
