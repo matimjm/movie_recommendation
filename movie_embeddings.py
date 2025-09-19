@@ -5,11 +5,12 @@ import torch
 import numpy as np
 from tqdm import tqdm
 from pathlib import Path
+import pandas as pd
 
 # establishing the tokenizer and the model
 
 EMBEDDINGS_FILE = 'movie_embeddings.npy'
-BATCH_SIZE =256
+BATCH_SIZE = 32
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -18,14 +19,22 @@ def generate_movie_embeddings():
     tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
     model = BertModel.from_pretrained("bert-base-uncased").to(device)
 
-    data_path = Path(__file__).parent / "data" / "movie_embeddings.npy"
+    data_path = Path(__file__).parent / "data" / "random_20_percent_movie_embeddings.npy"
 
     if data_path.is_file():
         print(f"{data_path} already exists")
     else:
 
 
-        df = get_data.get_data()
+        df = pd.read_pickle("data/cleaned_dataframe.pkl")
+
+        data_path = Path(__file__).parent / "data" / "random_20_percent_cleaned_dataframe.pkl"
+        if data_path.is_file():
+            print(f"{data_path} already exists")
+            df_20_percent = pd.read_pickle("data/random_20_percent_cleaned_dataframe.pkl")
+        else:
+            df_20_percent = df.sample(frac=0.2, random_state=42)
+            df_20_percent.to_pickle("data/random_20_percent_cleaned_dataframe.pkl")
         all_embeddings = []
 
         # Tokenize the text soup
@@ -34,9 +43,9 @@ def generate_movie_embeddings():
         # The `truncation=True` truncates sequences longer than the model's max length
         print("Generating embeddings in batches...")
         
-        for i in tqdm(range(0, len(df), BATCH_SIZE)):
+        for i in tqdm(range(0, len(df_20_percent), BATCH_SIZE)):
             # 1. Get a small batch of the dataframe
-            df_batch = df.iloc[i:i + BATCH_SIZE]
+            df_batch = df_20_percent.iloc[i:i + BATCH_SIZE]
             texts = df_batch['text_soup'].tolist()
 
             # 2. Tokenize just this batch (fast and low RAM)
@@ -65,3 +74,5 @@ def generate_movie_embeddings():
 
         print(f"Saving the movie embeddings to {EMBEDDINGS_FILE}")
         np.save(EMBEDDINGS_FILE, movie_embeddings)
+
+generate_movie_embeddings()
