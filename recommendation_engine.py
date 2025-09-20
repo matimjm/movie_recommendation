@@ -23,110 +23,74 @@ def get_data_and_embeddings():
     # Create movie embeddings using BERT tokenizer if they do not exist
     generate_movie_embeddings()
 
-def get_combined_features_and_model(df, embeddings):
-    """
-    Combines features and builds the NearestNeighbors model as a one-time process.
-    """
-    nn_model_path = Path("data/nn_model.pkl")
-    combined_features_path = Path("data/combined_features.npy")
-
-    if nn_model_path.exists() and combined_features_path.exists():
-        print("Loading pre-built NN model and combined features.")
-        nn_model = joblib.load(nn_model_path)
-        combined_features = np.load(combined_features_path)
-        return combined_features, nn_model
-
-    print("NN model or combined features not found. Building them now...")
-    
-    # Exclude the id and text_soup columns for a clean numerical matrix
-    numerical_features_df = df.drop(columns=['id', 'text_soup'])
-    numerical_features_np = numerical_features_df.to_numpy()
-    
-    # Concatenate the BERT embeddings and the numerical features
-    combined_features = np.hstack((embeddings, numerical_features_np))
-
-    # Build the NearestNeighbors model and save it
-    nn_model = NearestNeighbors(n_neighbors=5, algorithm='auto', metric='cosine')
-    nn_model.fit(combined_features)
-    joblib.dump(nn_model, nn_model_path)
-    np.save(combined_features_path, combined_features)
-
-    print("NN model and combined features saved.")
-    return combined_features, nn_model
-
 # --- The Main Recommendation Function ---
 
-def find_personalized_recommendations(movie_id, liked_attributes, df, embeddings, combined_features, nn_model, top_n=5, weight=2.0):
+def find_personalized_recommendations(liked_attributes, movie_embeddings):
     """
     Finds personalized recommendations based on what the user liked about a movie.
     """
-    if movie_id not in df['id'].values:
-        print(f"Movie with ID '{movie_id}' not found in the dataset.")
-        return pd.DataFrame() # Return an empty DataFrame if the movie is not found
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    movie_index = df[df['id'] == movie_id].index[0]
+    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    model = BertModel.from_pretrained("bert-base-uncased").to(device)
     
-    # Get the feature vector for the selected movie from the combined features matrix
-    movie_vector = combined_features[movie_index].reshape(1, -1)
-    
-    # This is the query vector that will be used to find similar movies
-    query_vector = np.copy(movie_vector)
-    
-    # Find the indices of the numerical features that match the liked attributes
-    numerical_cols = ['vote_average', 'vote_count', 'revenue', 'runtime', 'budget', 'popularity', 'adult', 'release_year']
-    
-    # Boost the liked attributes directly in the query vector
-    for attr in liked_attributes:
-        if attr in numerical_cols:
-            attr_index_in_combined = embeddings.shape[1] + numerical_cols.index(attr)
-            query_vector[0, attr_index_in_combined] *= weight
-        else:
-            # For non-numerical attributes like 'genres' or 'keywords', you can boost the entire text embedding section
-            query_vector[0, :embeddings.shape[1]] *= weight
+    tokenized_text = tokenizer(
+                liked_attributes, 
+                return_tensors='pt', 
+                padding=True, 
+                truncation=True,
+                max_length=512
+            )
             
-    # Use the NearestNeighbors model for an efficient search
-    distances, indices = nn_model.kneighbors(query_vector, n_neighbors=top_n + 1)
-    
-    # Get the recommended movie IDs, skipping the first one (the movie itself)
-    recommended_indices = indices.flatten()[1:]
-    
-    return df.iloc[recommended_indices]
+    # 3. Move this small batch to the GPU
+    tokenized_text = tokenized_text.to(device)
 
-def recommendation_engine(movie_id, liked_attributes):
+    # 4. Generate embeddings for this batch
+    with torch.no_grad():
+        outputs = model(**tokenized_text)
+    
+    # 5. Get the embeddings, move to CPU, and add to our list
+    user_embeddings = outputs.last_hidden_state[:, 0, :].cpu()
+    
+    scores = cosine_similarity(user_embeddings, movie_embeddings)
+
+    top_indices = np.argsort(scores[0])[::-1][:3]
+    
+    return top_indices
+
+
+    
+
+def recommendation_engine(liked_attributes):
     
     # Downloading the dataset and embeddings if it was not done already
     get_data_and_embeddings()
 
     # putting the data and embeddings from file into dataframe and numpy ndarray
-    df_cleaned_20_percent = pd.read_pickle("data/random_20_percent_cleaned_dataframe.pkl").reset_index()
+    cleaned_dataframe = pd.read_pickle("data/cleaned_dataframe.pkl").reset_index()
+
     df_raw = pd.read_pickle("data/raw_dataframe.pkl")
-    movie_embeddings = np.load("data/random_20_percent_movie_embeddings.npy")
-    print(df_cleaned_20_percent.head())
+    movie_embeddings = np.load("data/movie_embeddings.npy")
+    print(cleaned_dataframe.shape)
     #print(df_raw.shape[0])
     print(movie_embeddings.shape)
-    
-    combined_features_matrix, nn_model = get_combined_features_and_model(df_cleaned_20_percent, movie_embeddings)
         
-    recommended_movies = find_personalized_recommendations(
-            movie_id, 
+    recommended_movies_index = find_personalized_recommendations(
             liked_attributes, 
-            df_cleaned_20_percent, 
-            movie_embeddings, 
-            combined_features_matrix, 
-            nn_model
+            movie_embeddings
     )
 
-    list_of_ids = recommended_movies['id'].tolist()
+    list_titles = [df_raw.loc[i]["title"] for i in recommended_movies_index]
     
-    if recommended_movies is not None and not recommended_movies.empty:
-        print(f"Top {len(recommended_movies)} personalized recommendations for movie ID {df_raw.loc[df_raw['id']==movie_id]['title']}:")
-        print(df_raw[df_raw['id'].isin(list_of_ids)]["title"])
+    if list_titles is not None:
+        print(f"Top {len(list_titles)} personalized recommendations")
+        print(list_titles)
 
 
-selected_movie_id = 222707
-user_liked_attributes = ["Parti sans laisser d'adresse", "how the British brok the Braz"]
 
-recommendation_engine(selected_movie_id, user_liked_attributes)
+user_liked_attributes = "Twenty-two years after the events of Jurassic Park, Isla Nublar now features a fully functioning dinosaur park dinosaur dinosaur dinosaur dinosaur jurrassic jurassic jurassic jurassic"
+
+recommendation_engine(user_liked_attributes)
 
 
     
