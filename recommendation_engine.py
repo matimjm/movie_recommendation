@@ -8,6 +8,7 @@ from sklearn.neighbors import NearestNeighbors
 from pathlib import Path
 import numpy as np
 import pandas as pd
+from timeit import default_timer as timer
 
 #TODO create separate functions for getting data into df and for getting embeddings into variable
 
@@ -62,7 +63,10 @@ def find_personalized_recommendations(liked_attributes, movie_embeddings):
     
 
 def recommendation_engine(liked_attributes):
+
+    print(f"Creating recommendations for: {liked_attributes}")
     
+    start_time = timer()
     # Downloading the dataset and embeddings if it was not done already
     get_data_and_embeddings()
 
@@ -86,11 +90,11 @@ def recommendation_engine(liked_attributes):
         print(f"Top {len(list_titles)} personalized recommendations")
         print(list_titles)
 
+    rec_time = round(timer()-start_time,5)
 
+    print(f"The movies were recommended in {rec_time} s.")
+    return list_titles, rec_time
 
-user_liked_attributes = "Twenty-two years after the events of Jurassic Park, Isla Nublar now features a fully functioning dinosaur park dinosaur dinosaur dinosaur dinosaur jurrassic jurassic jurassic jurassic"
-
-recommendation_engine(user_liked_attributes)
 
 
     
